@@ -1,24 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Cerebras AI client wrapper for ichingshifa."""
+"""AI client wrappers for ichingshifa."""
 
+import json
+import urllib.request
 from cerebras.cloud.sdk import Cerebras
 
-DEFAULT_MODEL = "qwen-3-235b-a22b-instruct-2507"
+DEFAULT_MODEL = "gpt-oss-120b"
 
 CEREBRAS_MODEL_OPTIONS = [
-    "qwen-3-235b-a22b-instruct-2507",
-    "deepseek-r1-distill-llama-70b",
-    "llama-4-scout-17b-16e-instruct",
-    "llama3.3-70b",
-    "llama3.1-8b",
+    "gpt-oss-120b",
+    "zai-glm-4.7",
 ]
 
 CEREBRAS_MODEL_DESCRIPTIONS = {
-    "qwen-3-235b-a22b-instruct-2507": "Qwen 3 235B (推薦)",
-    "deepseek-r1-distill-llama-70b": "DeepSeek R1 Distill 70B",
-    "llama-4-scout-17b-16e-instruct": "Llama 4 Scout 17B",
-    "llama3.3-70b": "Llama 3.3 70B",
-    "llama3.1-8b": "Llama 3.1 8B",
+    "gpt-oss-120b": "GPT-OSS 120B (推薦)",
+    "zai-glm-4.7": "ZAI GLM 4.7",
 }
 
 
@@ -36,3 +32,40 @@ class CerebrasClient:
             model=model,
             **kwargs,
         )
+
+
+class OpenAICompatibleClient:
+    """Simple OpenAI-compatible chat completion client."""
+
+    def __init__(self, api_key, base_url):
+        if not api_key:
+            raise ValueError("OpenAICompatibleClient must be initialized with an API key.")
+        if not base_url:
+            raise ValueError("OpenAICompatibleClient must be initialized with a server URL.")
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+
+    def get_chat_completion(self, messages, model, **kwargs):
+        if not model:
+            raise ValueError("Model is required for OpenAI-compatible API.")
+
+        endpoint = self.base_url
+        if not endpoint.endswith("/chat/completions"):
+            endpoint = f"{endpoint}/chat/completions"
+
+        payload = {
+            "messages": messages,
+            "model": model,
+            **kwargs,
+        }
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + self.api_key,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))

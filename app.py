@@ -16,6 +16,7 @@ from io import StringIO
 from ichingshifa import ichingshifa
 from ichingshifa.cerebras_client import (
     CerebrasClient,
+    OpenAICompatibleClient,
     DEFAULT_MODEL,
     CEREBRAS_MODEL_OPTIONS,
     CEREBRAS_MODEL_DESCRIPTIONS,
@@ -29,6 +30,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SYSTEM_PROMPTS_FILE = os.path.join(BASE_DIR, "system_prompts.json")
 DEFAULT_MAX_TOKENS = 200000
 DEFAULT_TEMPERATURE = 0.7
+DEFAULT_CUSTOM_SERVER = "https://api.openai.com/v1"
+DEFAULT_CUSTOM_MODEL = "gpt-4o-mini"
 
 
 @contextmanager
@@ -56,6 +59,54 @@ def get_remote_file(url):
     """Fetch a remote text file."""
     response = urllib.request.urlopen(url)
     return response.read().decode("utf-8")
+
+
+def get_ai_provider_settings():
+    provider = st.session_state.get("ai_provider_selector", "Cerebras")
+    if provider == "Cerebras":
+        api_key = (
+            st.session_state.get("cerebras_api_key_input", "").strip()
+            or st.secrets.get("CEREBRAS_API_KEY", "")
+            or os.getenv("CEREBRAS_API_KEY", "")
+        )
+        model = st.session_state.get("cerebras_model_selector", DEFAULT_MODEL)
+        if not api_key:
+            raise ValueError("CEREBRAS API Key 未設置，請在側邊欄或 secrets/環境變量中設置。")
+        return provider, model, CerebrasClient(api_key=api_key)
+
+    api_key = st.session_state.get("custom_ai_api_key_input", "").strip()
+    server = st.session_state.get("custom_ai_server_input", "").strip()
+    model = st.session_state.get("custom_ai_model_input", "").strip()
+    if not api_key:
+        raise ValueError("請輸入自定義 AI 的 API Key。")
+    if not server:
+        raise ValueError("請輸入自定義 AI 的 Server URL。")
+    if not model:
+        raise ValueError("請輸入自定義 AI 的模型名稱。")
+    return provider, model, OpenAICompatibleClient(api_key=api_key, base_url=server)
+
+
+def request_ai_response(messages, max_tokens, temperature):
+    provider, model, client = get_ai_provider_settings()
+    api_params = {
+        "messages": messages,
+        "model": model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if provider == "Cerebras":
+        response = client.get_chat_completion(**api_params)
+        return response.choices[0].message.content
+
+    response = client.get_chat_completion(**api_params)
+    choices = response.get("choices", [])
+    if not choices:
+        raise ValueError("AI 未返回任何回應。")
+    message = choices[0].get("message", {})
+    content = message.get("content")
+    if not content:
+        raise ValueError("AI 回應內容為空。")
+    return content
 
 
 # ---------------------------------------------------------------------------
@@ -190,13 +241,45 @@ with st.sidebar:
     st.markdown("---")
     st.header("AI設置")
 
-    selected_model = st.selectbox(
-        "AI 模型",
-        options=CEREBRAS_MODEL_OPTIONS,
-        index=0,
-        key="cerebras_model_selector",
-        help="\n".join(f"• {k}: {v}" for k, v in CEREBRAS_MODEL_DESCRIPTIONS.items()),
+    ai_provider = st.selectbox(
+        "AI 服務",
+        options=["Cerebras", "自定義（OpenAI相容）"],
+        key="ai_provider_selector",
     )
+
+    if ai_provider == "Cerebras":
+        st.selectbox(
+            "AI 模型",
+            options=CEREBRAS_MODEL_OPTIONS,
+            index=0,
+            key="cerebras_model_selector",
+            help="\n".join(f"• {k}: {v}" for k, v in CEREBRAS_MODEL_DESCRIPTIONS.items()),
+        )
+        st.text_input(
+            "Cerebras API Key（可選）",
+            type="password",
+            key="cerebras_api_key_input",
+            help="可留空，留空時將使用 .streamlit/secrets.toml 或環境變量 CEREBRAS_API_KEY。",
+        )
+    else:
+        st.text_input(
+            "模型名稱",
+            value=st.session_state.get("custom_ai_model_input", DEFAULT_CUSTOM_MODEL),
+            key="custom_ai_model_input",
+            help="例如：gpt-4o、claude-3-7-sonnet、gemini-2.5-pro 等。",
+        )
+        st.text_input(
+            "API Key",
+            type="password",
+            key="custom_ai_api_key_input",
+            help="輸入你使用的 AI 服務 API Key。",
+        )
+        st.text_input(
+            "Server URL",
+            value=st.session_state.get("custom_ai_server_input", DEFAULT_CUSTOM_SERVER),
+            key="custom_ai_server_input",
+            help="OpenAI 相容接口地址，例如 https://api.openai.com/v1。",
+        )
 
     system_prompts_data = load_system_prompts()
     prompts_list = system_prompts_data.get("prompts", [])
@@ -388,46 +471,31 @@ with tab_pan:
     # --- AI analysis button ---
     if st.button("🔍 使用AI分析排盤結果", key="analyze_with_ai"):
         with st.spinner("AI正在分析六爻排盤結果..."):
-            cerebras_api_key = (
-                st.secrets.get("CEREBRAS_API_KEY", "")
-                or os.getenv("CEREBRAS_API_KEY", "")
-            )
-            if not cerebras_api_key:
-                st.error(
-                    "CEREBRAS_API_KEY 未設置，請在 .streamlit/secrets.toml 或環境變量中設置。"
+            try:
+                user_prompt = (
+                    "以下是六爻排盤的計算結果，請根據這些數據提供詳細的分析和解釋：\n\n"
+                    + pan_text
                 )
-            else:
-                try:
-                    client = CerebrasClient(api_key=cerebras_api_key)
-                    user_prompt = (
-                        "以下是六爻排盤的計算結果，請根據這些數據提供詳細的分析和解釋：\n\n"
-                        + pan_text
-                    )
-                    messages = [
-                        {
-                            "role": "system",
-                            "content": st.session_state.get(
-                                "system_prompt", ""
-                            ),
-                        },
-                        {"role": "user", "content": user_prompt},
-                    ]
-                    api_params = {
-                        "messages": messages,
-                        "model": selected_model,
-                        "max_tokens": st.session_state.get(
-                            "ai_max_tokens", DEFAULT_MAX_TOKENS
+                messages = [
+                    {
+                        "role": "system",
+                        "content": st.session_state.get(
+                            "system_prompt", ""
                         ),
-                        "temperature": st.session_state.get(
-                            "ai_temperature", DEFAULT_TEMPERATURE
-                        ),
-                    }
-                    response = client.get_chat_completion(**api_params)
-                    raw_response = response.choices[0].message.content
-                    with st.expander("AI分析結果", expanded=True):
-                        st.markdown(raw_response)
-                except Exception as e:
-                    st.error(f"調用AI時發生錯誤：{e}")
+                    },
+                    {"role": "user", "content": user_prompt},
+                ]
+                raw_response = request_ai_response(
+                    messages=messages,
+                    max_tokens=st.session_state.get("ai_max_tokens", DEFAULT_MAX_TOKENS),
+                    temperature=st.session_state.get(
+                        "ai_temperature", DEFAULT_TEMPERATURE
+                    ),
+                )
+                with st.expander("AI分析結果", expanded=True):
+                    st.markdown(raw_response)
+            except Exception as e:
+                st.error(f"調用AI時發生錯誤：{e}")
 
 # ---------------------------------------------------------------------------
 # Fixed bottom LLM chat
@@ -453,41 +521,26 @@ if user_chat_input := st.chat_input("輸入您的問題…"):
         st.markdown(user_chat_input)
 
     # Call the LLM
-    cerebras_api_key = (
-        st.secrets.get("CEREBRAS_API_KEY", "")
-        or os.getenv("CEREBRAS_API_KEY", "")
-    )
-    if not cerebras_api_key:
+    try:
+        system_prompt_content = st.session_state.get("system_prompt", "")
+        messages_payload = []
+        if system_prompt_content:
+            messages_payload.append({"role": "system", "content": system_prompt_content})
+        messages_payload += [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.chat_messages
+        ]
         with st.chat_message("assistant"):
-            st.error("CEREBRAS_API_KEY 未設置，請在 .streamlit/secrets.toml 或環境變量中設置。")
-    else:
-        try:
-            client = CerebrasClient(api_key=cerebras_api_key)
-            system_prompt_content = st.session_state.get("system_prompt", "")
-            messages_payload = []
-            if system_prompt_content:
-                messages_payload.append({"role": "system", "content": system_prompt_content})
-            messages_payload += [
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.chat_messages
-            ]
-            api_params = {
-                "messages": messages_payload,
-                "model": st.session_state.get("cerebras_model_selector", DEFAULT_MODEL),
-                "max_tokens": st.session_state.get("ai_max_tokens", DEFAULT_MAX_TOKENS),
-                "temperature": st.session_state.get("ai_temperature", DEFAULT_TEMPERATURE),
-            }
-            with st.chat_message("assistant"):
-                with st.spinner("AI 正在回應…"):
-                    response = client.get_chat_completion(**api_params)
-                    if not response.choices:
-                        st.error("AI 未返回任何回應。")
-                    else:
-                        assistant_reply = response.choices[0].message.content
-                        st.markdown(assistant_reply)
-                        st.session_state.chat_messages.append(
-                            {"role": "assistant", "content": assistant_reply}
-                        )
-        except Exception as e:
-            with st.chat_message("assistant"):
-                st.error(f"調用AI時發生錯誤：{e}")
+            with st.spinner("AI 正在回應…"):
+                assistant_reply = request_ai_response(
+                    messages=messages_payload,
+                    max_tokens=st.session_state.get("ai_max_tokens", DEFAULT_MAX_TOKENS),
+                    temperature=st.session_state.get("ai_temperature", DEFAULT_TEMPERATURE),
+                )
+                st.markdown(assistant_reply)
+                st.session_state.chat_messages.append(
+                    {"role": "assistant", "content": assistant_reply}
+                )
+    except Exception as e:
+        with st.chat_message("assistant"):
+            st.error(f"調用AI時發生錯誤：{e}")
