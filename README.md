@@ -156,7 +156,19 @@ pip install sxtwl
 pip install --upgrade ichingshifa
 ```
 
-**依賴套件 Dependencies**：`sxtwl`（農曆），`ephem`（天文曆算），`cn2an`（中文數字轉換），`bidict`，`numpy`
+**依賴套件 Dependencies**：`lunar_python`（農曆 + 干支，純 Python）、`ephem`（節氣計算），`cn2an`（中文數字轉換），`bidict`，`numpy`
+
+> **注意 / Note for Streamlit Cloud**：已移除有原生擴充的 `sxtwl`，改用純 Python 的 `lunar_python`。現在應該可以在 Cloud 任何支援的 Python 版本上直接部署，不再需要特別鎖定 3.11。
+
+---
+
+## Deploying the Streamlit app on Streamlit Cloud
+
+1. Fork / push this repo to GitHub.
+2. On Streamlit Cloud: **New app** → select the repo + `app.py`.
+3. (Optional) In **Manage app → Settings** you can pick a Python version if you want, but the current dependencies (pure-Python lunar calendar) work on recent Python versions.
+4. Add any required secrets (e.g. `CEREBRAS_API_KEY`) if you use the AI features.
+5. The app uses `src/` layout; the `sys.path` hack in `app.py` makes `streamlit run app.py` work from the repo root both locally and on Cloud.
 
 ---
 

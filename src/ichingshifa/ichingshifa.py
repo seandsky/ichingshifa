@@ -6,7 +6,7 @@ from bidict import bidict
 import cn2an
 from cn2an import an2cn
 from ephem import Date
-from sxtwl import fromSolar
+from lunar_python import Solar
 from ichingshifa.jieqi import *
 from ichingshifa.d import *
 
@@ -194,47 +194,69 @@ class Iching():
         else:
             result = self.multi_key_dict_get(fiverats, day[0])
         return dict(zip(list(self.dizhi), self.new_list(self.jiazi(), result)[:12]))
-    #農曆
+    #農曆 (now using pure-Python lunar_python to avoid native extension problems on Streamlit Cloud)
     def lunar_date_d(self, year, month, day):
-        day = fromSolar(year, month, day)
-        return {"年":day.getLunarYear(),  "月": day.getLunarMonth(), "日":day.getLunarDay()}
-    #干支
+        solar = Solar.fromYmd(year, month, day)
+        lunar = solar.getLunar()
+        return {"年": lunar.getYear(), "月": lunar.getMonth(), "日": lunar.getDay()}
+
+    #干支 (replaced sxtwl with lunar_python for full Python compatibility)
     def gangzhi(self, year, month, day, hour, minute):
-        
         if year == 0:
             return ["無效"]
         if year < 0:
-            year = year + 1 
+            year = year + 1
+
+        # Preserve the original 23:00 day-roll logic using ephem (used elsewhere too)
         if hour == 23:
             d = Date(round((Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day+1).zfill(2), str(0).zfill(2)))), 3))
         else:
-            d = Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day).zfill(2), str(hour).zfill(2) ))
+            d = Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day).zfill(2), str(hour).zfill(2)))
         dd = list(d.tuple())
-        cdate = fromSolar(dd[0], dd[1], dd[2])
-        yTG,mTG,dTG,hTG = "{}{}".format(tian_gan[cdate.getYearGZ().tg], di_zhi[cdate.getYearGZ().dz]), "{}{}".format(tian_gan[cdate.getMonthGZ().tg],di_zhi[cdate.getMonthGZ().dz]), "{}{}".format(tian_gan[cdate.getDayGZ().tg], di_zhi[cdate.getDayGZ().dz]), "{}{}".format(tian_gan[cdate.getHourGZ(dd[3]).tg], di_zhi[cdate.getHourGZ(dd[3]).dz])
+
+        # Use lunar_python on the (possibly rolled) solar moment for accurate traditional ganzhi
+        solar = Solar.fromYmdHms(dd[0], dd[1], dd[2], dd[3], 0, 0)
+        lunar = solar.getLunar()
+        eight = lunar.getEightChar()
+
+        yTG = eight.getYear()
+        mTG = eight.getMonth()
+        dTG = eight.getDay()
+        hTG = eight.getTime()
+
         if year < 1900:
             mTG1 = self.find_lunar_month(yTG).get(self.lunar_date_d(year, month, day).get("月"))
         else:
             mTG1 = mTG
+
         hTG1 = self.find_lunar_hour(dTG).get(hTG[1])
         zi = self.gangzhi1(year, month, day, 0, 0)[3]
-        hourminute = str(hour)+":"+str(minute)
+        hourminute = str(hour) + ":" + str(minute)
         gangzhi_minute = self.minutes_jiazi_d(zi).get(hourminute)
         return [yTG, mTG1, dTG, hTG1, gangzhi_minute]
-    
-    #換算干支
+
+    #換算干支 (replaced sxtwl with lunar_python)
     def gangzhi1(self, year, month, day, hour, minute):
         if hour == 23:
             d = Date(round((Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day+1).zfill(2), str(0).zfill(2)))), 3))
         else:
-            d = Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day).zfill(2), str(hour).zfill(2) ))
+            d = Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day).zfill(2), str(hour).zfill(2)))
         dd = list(d.tuple())
-        cdate = fromSolar(dd[0], dd[1], dd[2])
-        yTG,mTG,dTG,hTG = "{}{}".format(tian_gan[cdate.getYearGZ().tg], di_zhi[cdate.getYearGZ().dz]), "{}{}".format(tian_gan[cdate.getMonthGZ().tg],di_zhi[cdate.getMonthGZ().dz]), "{}{}".format(tian_gan[cdate.getDayGZ().tg], di_zhi[cdate.getDayGZ().dz]), "{}{}".format(tian_gan[cdate.getHourGZ(dd[3]).tg], di_zhi[cdate.getHourGZ(dd[3]).dz])
+
+        solar = Solar.fromYmdHms(dd[0], dd[1], dd[2], dd[3], 0, 0)
+        lunar = solar.getLunar()
+        eight = lunar.getEightChar()
+
+        yTG = eight.getYear()
+        mTG = eight.getMonth()
+        dTG = eight.getDay()
+        hTG = eight.getTime()
+
         if year < 1900:
             mTG1 = self.find_lunar_month(yTG).get(self.lunar_date_d(year, month, day).get("月"))
         else:
             mTG1 = mTG
+
         hTG1 = self.find_lunar_hour(dTG).get(hTG[1])
         return [yTG, mTG1, dTG, hTG1]
     

@@ -1,10 +1,19 @@
+# Core
+streamlit>=1.39
 pendulum==3.0.0
-streamlit==1.39
-sxtwl==2.0.6
-streamlit-aggrid==0.3.3
+
+# Calendar / Ganzhi / lunar (pure Python lunar_python - no C extensions).
+# Replaced the old sxtwl (native) dependency that broke on Python 3.14 on Streamlit Cloud.
+lunar_python>=1.4.0
 ephem==4.1.6
+
+# Other deps
 cn2an==0.5.23
 pytz==2022.4
 eacal==0.0.3
 bidict==0.23.1
+
+# AI provider (optional key)
 cerebras-cloud-sdk
+
+# streamlit-aggrid was previously listed but is not used in app.py (dead dep). Removed.

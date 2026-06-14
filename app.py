@@ -8,6 +8,9 @@ import urllib.request
 # (e.g. ``streamlit run app.py``).
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 
+# Calendar logic now uses the pure-Python "lunar_python" package (no native extensions).
+# This should deploy cleanly on any modern Python version supported by Streamlit Cloud.
+
 import streamlit as st
 import pendulum as pdlm
 from contextlib import contextmanager, redirect_stdout
